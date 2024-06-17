@@ -1,20 +1,23 @@
+import torch
+import torch.nn as nn
+from torch import optim
+import torch.nn.functional as F
+import random
+import re
+import os
+import itertools
 import time
-from tkinter import *
-from tkinter import ttk
 import cv2
 import face_recognition
-import os
+import speech_recognition
+import psycopg2
+from tkinter import *
+import tkinter as tk
+from tkinter import scrolledtext
 from PIL import Image, ImageTk
 import shutil
 import pickle
 import sys
-import speech_recognition
-import psycopg2
-import re
-import cv2
-import tkinter as tk
-from tkinter import scrolledtext
-from PIL import Image, ImageTk
 
 
 host = "127.0.0.1"
@@ -26,7 +29,7 @@ db_name = "face_recognition_chatbot"
 #-----------------------------SQL queries----------------------------------------
 
 
-def create_table_images():
+def sql_query(query):
     try:
         connection = psycopg2.connect(
             host=host,
@@ -36,8 +39,54 @@ def create_table_images():
         )
         connection.autocommit = True
         with connection.cursor() as cursor:
-            cursor.execute(
-                """CREATE TABLE if not exists IMAGES (
+            cursor.execute(query)
+    except Exception as _ex:
+        print(_ex)
+    finally:
+        if connection:
+            connection.close()
+
+
+def sql_query_with_return_fetchone(query):
+    try:
+        connection = psycopg2.connect(
+            host=host,
+            user=user,
+            password=password,
+            database=db_name
+        )
+        connection.autocommit = True
+        with connection.cursor() as cursor:
+            cursor.execute(query)
+            return cursor.fetchone()[0]
+    except Exception as _ex:
+        print(_ex)
+    finally:
+        if connection:
+            connection.close()
+
+
+def sql_query_with_return_fetchall(query):
+    try:
+        connection = psycopg2.connect(
+            host=host,
+            user=user,
+            password=password,
+            database=db_name
+        )
+        connection.autocommit = True
+        with connection.cursor() as cursor:
+            cursor.execute(query)
+            return cursor.fetchall()
+    except Exception as _ex:
+        print(_ex)
+    finally:
+        if connection:
+            connection.close()
+
+
+def create_table_images():
+    query = """CREATE TABLE if not exists IMAGES (
                     ImageId serial PRIMARY KEY,
                     FaceEncoding BYTEA NOT NULL,
                     IdentifiedPersonId integer NULL,
@@ -47,175 +96,57 @@ def create_table_images():
                     DateAndTime TIMESTAMP NOT NULL,
                     CONSTRAINT check_ids CHECK ((IdentifiedPersonId IS NOT NULL AND UnidentifiedPersonId IS NULL) or (IdentifiedPersonId IS NULL AND UnidentifiedPersonId IS NOT NULL))
                     );"""
-            )
-            print("CREATE TABLE if not exists IMAGES")
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    sql_query(query)
 
 
 def create_table_identified_persons():
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """CREATE TABLE if not exists IDENTIFIED_PERSONS(
+    query = """CREATE TABLE if not exists IDENTIFIED_PERSONS(
                     IdentifiedPersonId serial PRIMARY KEY,
                     Name varchar(50) UNIQUE NOT NULL,
                     DateAndTimeOfFirstRecognition TIMESTAMP NOT NULL,
                     DateAndTimeOfLastRecognition TIMESTAMP NOT NULL
                     );"""
-            )
-            print("CREATE TABLE if not exists IDENTIFIED_PERSONS")
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    sql_query(query)
 
 
 def create_table_unidentified_persons():
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """CREATE TABLE if not exists UNIDENTIFIED_PERSONS(
+    query = """CREATE TABLE if not exists UNIDENTIFIED_PERSONS(
                     UnidentifiedPersonId serial PRIMARY KEY,
                     DateAndTimeOfFirstRecognition TIMESTAMP NOT NULL,
                     DateAndTimeOfLastRecognition TIMESTAMP NOT NULL
                     );"""
-            )
-            print("CREATE TABLE if not exists UNIDENTIFIED_PERSONS")
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    sql_query(query)
 
 
 def create_table_dialogues():
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """CREATE TABLE if not exists DIALOGUES(
+    query = """CREATE TABLE if not exists DIALOGUES(
                     DialogId serial PRIMARY KEY,
                     Question varchar(200) NOT NULL,
                     Answer varchar(200) NOT NULL,
                     IdentifiedPersonId integer NOT NULL,
                     CONSTRAINT fk_dialog_identified_person FOREIGN KEY (IdentifiedPersonId) REFERENCES IDENTIFIED_PERSONS (IdentifiedPersonId) ON DELETE CASCADE
                     );"""
-            )
-            print("CREATE TABLE if not exists DIALOGUES")
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    sql_query(query)
 
 
 def drop_table_images():
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """DROP TABLE IMAGES;"""
-            )
-            print("DROP TABLE IMAGES")
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "DROP TABLE IMAGES;"
+    sql_query(query)
 
 
 def drop_table_identified_persons():
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """DROP TABLE IDENTIFIED_PERSONS;"""
-            )
-            print("DROP TABLE IDENTIFIED_PERSONS")
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "DROP TABLE IDENTIFIED_PERSONS;"
+    sql_query(query)
 
 
 def drop_table_unidentified_persons():
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """DROP TABLE UNIDENTIFIED_PERSONS;"""
-            )
-            print("DROP TABLE UNIDENTIFIED_PERSONS")
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "DROP TABLE UNIDENTIFIED_PERSONS;"
+    sql_query(query)
 
 
 def drop_table_dialogues():
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """DROP TABLE DIALOGUES;"""
-            )
-            print("DROP TABLE DIALOGUES")
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "DROP TABLE DIALOGUES;"
+    sql_query(query)
 
 
 def insert_identified_person_image_into_images(face_encoding, identified_person_id):
@@ -232,7 +163,6 @@ def insert_identified_person_image_into_images(face_encoding, identified_person_
                 """INSERT INTO IMAGES(FaceEncoding, IdentifiedPersonId, DateAndTime) VALUES (%s, %s, NOW());""",
                 (face_encoding, identified_person_id)
             )
-            print("INSERT INTO IMAGES(FaceEncoding, IdentifiedPersonId)")
     except Exception as _ex:
         print(_ex)
     finally:
@@ -253,7 +183,6 @@ def insert_unidentified_person_image_into_images(face_encoding, unidentified_per
             cursor.execute(
                 """INSERT INTO IMAGES(FaceEncoding, UnidentifiedPersonId, DateAndTime) VALUES (%s, %s, NOW());""",
                 (face_encoding, unidentified_person_id))
-            print("INSERT INTO IMAGES(FaceEncoding, UnidentifiedPersonId)")
     except Exception as _ex:
         print(_ex)
     finally:
@@ -262,606 +191,169 @@ def insert_unidentified_person_image_into_images(face_encoding, unidentified_per
 
 
 def insert_into_identified_persons(name):
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "INSERT INTO IDENTIFIED_PERSONS(Name, DateAndTimeOfFirstRecognition, DateAndTimeOfLastRecognition) VALUES ('" + name + "', NOW(), NOW());")
-            print(
-                "INSERT INTO IDENTIFIED_PERSONS(Name, DateAndTimeOfFirstRecognition, DateAndTimeOfLastRecognition) VALUES")
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "INSERT INTO IDENTIFIED_PERSONS(Name, DateAndTimeOfFirstRecognition, DateAndTimeOfLastRecognition) VALUES ('" + name + "', NOW(), NOW());"
+    sql_query(query)
 
 
 def insert_into_dialogues(identified_person_id, question, answer):
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "INSERT INTO DIALOGUES(IdentifiedPersonId, Question, Answer) VALUES (" + str(identified_person_id) + ", '" + question + "', '" + answer + "');")
-            print(
-                "INSERT INTO DIALOGUES(IdentifiedPersonId, Question, Answer) VALUES")
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "INSERT INTO DIALOGUES(IdentifiedPersonId, Question, Answer) VALUES (" + str(identified_person_id) + ", '" + question + "', '" + answer + "');"
+    sql_query(query)
 
 
 def insert_into_identified_persons_with_date_and_time_of_first_and_last_recognitions(name,
                                                                                      date_and_time_of_first_recognition,
                                                                                      date_and_time_of_last_recognition):
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "INSERT INTO IDENTIFIED_PERSONS(Name, DateAndTimeOfFirstRecognition, DateAndTimeOfLastRecognition) VALUES ('" + name + "', '" + str(
-                    date_and_time_of_first_recognition) + "', '" + str(date_and_time_of_last_recognition) + "');")
-            print(
-                "INSERT INTO IDENTIFIED_PERSONS(Name, DateAndTimeOfFirstRecognition, DateAndTimeOfLastRecognition) VALUES")
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "INSERT INTO IDENTIFIED_PERSONS(Name, DateAndTimeOfFirstRecognition, DateAndTimeOfLastRecognition) VALUES ('" + name + "', '" + str(date_and_time_of_first_recognition) + "', '" + str(date_and_time_of_last_recognition) + "');"
+    sql_query(query)
 
 
 def insert_into_unidentified_persons():
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "INSERT INTO UNIDENTIFIED_PERSONS(DateAndTimeOfFirstRecognition, DateAndTimeOfLastRecognition) VALUES (NOW(), NOW());")
-            print(
-                "INSERT INTO UNIDENTIFIED_PERSONS(DateAndTimeOfFirstRecognition, DateAndTimeOfLastRecognition) VALUES")
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "INSERT INTO UNIDENTIFIED_PERSONS(DateAndTimeOfFirstRecognition, DateAndTimeOfLastRecognition) VALUES (NOW(), NOW());"
+    sql_query(query)
 
 
 def count_images():
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT COUNT(*) FROM IMAGES;")
-            print("SELECT COUNT(*) FROM IMAGES")
-            return cursor.fetchone()[0]
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "SELECT COUNT(*) FROM IMAGES;"
+    res = sql_query_with_return_fetchone(query)
+    return res
 
 
 def count_identified_persons():
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT COUNT(*) FROM IDENTIFIED_PERSONS;")
-            print("SELECT COUNT(*) FROM IDENTIFIED_PERSONS")
-            return cursor.fetchone()[0]
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "SELECT COUNT(*) FROM IDENTIFIED_PERSONS;"
+    res = sql_query_with_return_fetchone(query)
+    return res
 
 
 def count_types_of_changes():
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT COUNT(*) FROM TYPES_OF_CHANGES;")
-            print("SELECT COUNT(*) FROM TYPES_OF_CHANGES")
-            return cursor.fetchone()[0]
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "SELECT COUNT(*) FROM TYPES_OF_CHANGES;"
+    res = sql_query_with_return_fetchone(query)
+    return res
 
 
 def count_unidentified_persons():
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT COUNT(*) FROM UNIDENTIFIED_PERSONS;")
-            print("SELECT COUNT(*) FROM UNIDENTIFIED_PERSONS")
-            return cursor.fetchone()[0]
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "SELECT COUNT(*) FROM UNIDENTIFIED_PERSONS;"
+    res = sql_query_with_return_fetchone(query)
+    return res
 
 
 def count_images_of_identified_person(identified_person_id):
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT COUNT(*) FROM IMAGES WHERE IdentifiedPersonId = " + str(identified_person_id) + ";")
-            print("SELECT COUNT(*) FROM IMAGES WHERE IdentifiedPersonId =")
-            return cursor.fetchone()[0]
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "SELECT COUNT(*) FROM IMAGES WHERE IdentifiedPersonId = " + str(identified_person_id) + ";"
+    res = sql_query_with_return_fetchone(query)
+    return res
 
 
 def count_images_of_unidentified_person(unidentified_person_id):
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT COUNT(*) FROM IMAGES WHERE UnidentifiedPersonId = " + str(unidentified_person_id) + ";")
-            print("SELECT COUNT(*) FROM IMAGES WHERE UnidentifiedPersonId =")
-            return cursor.fetchone()[0]
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "SELECT COUNT(*) FROM IMAGES WHERE UnidentifiedPersonId = " + str(unidentified_person_id) + ";"
+    res = sql_query_with_return_fetchone(query)
+    return res
 
 
 def get_id_by_name_in_table_identified_persons(name):
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT IdentifiedPersonId FROM IDENTIFIED_PERSONS WHERE Name = '" + name + "';")
-            print("SELECT IdentifiedPersonId FROM IDENTIFIED_PERSONS WHERE Name =")
-            return cursor.fetchone()[0]
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "SELECT IdentifiedPersonId FROM IDENTIFIED_PERSONS WHERE Name = '" + name + "';"
+    res = sql_query_with_return_fetchone(query)
+    return res
 
 
 def get_name_by_id_in_table_identified_persons(identified_person_id):
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT Name FROM IDENTIFIED_PERSONS WHERE IdentifiedPersonId = " + str(identified_person_id) + ";")
-            print("SELECT Name FROM IDENTIFIED_PERSONS WHERE IdentifiedPersonId =")
-            return cursor.fetchone()[0]
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "SELECT Name FROM IDENTIFIED_PERSONS WHERE IdentifiedPersonId = " + str(identified_person_id) + ";"
+    res = sql_query_with_return_fetchone(query)
+    return res
 
 
 def find_identified_person_face_encoding_in_table_images(identified_person_id):
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT FaceEncoding FROM IMAGES WHERE IdentifiedPersonId = " + str(identified_person_id) + ";")
-            print("SELECT FaceEncoding FROM IMAGES WHERE IdentifiedPersonId =")
-            return pickle.loads(cursor.fetchone()[0])
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "SELECT FaceEncoding FROM IMAGES WHERE IdentifiedPersonId = " + str(identified_person_id) + ";"
+    res = pickle.loads(sql_query_with_return_fetchone(query))
+    return res
 
 
 def find_unidentified_person_face_encoding_in_table_images(unidentified_person_id):
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT FaceEncoding FROM IMAGES WHERE UnidentifiedPersonId = " + str(unidentified_person_id) + ";")
-            print("SELECT FaceEncoding FROM IMAGES WHERE UnidentifiedPersonId = ")
-            return pickle.loads(cursor.fetchone()[0])
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "SELECT FaceEncoding FROM IMAGES WHERE UnidentifiedPersonId = " + str(unidentified_person_id) + ";"
+    res = pickle.loads(sql_query_with_return_fetchone(query))
+    return res
 
 
 def is_there_this_name_in_table_identified_persons(name):
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT EXISTS (SELECT 1 FROM IDENTIFIED_PERSONS WHERE Name = '" + name + "');")
-            print("SELECT EXISTS (SELECT 1 FROM IDENTIFIED_PERSONS WHERE Name =")
-            return cursor.fetchone()[0]
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "SELECT EXISTS (SELECT 1 FROM IDENTIFIED_PERSONS WHERE Name = '" + name + "');"
+    res = sql_query_with_return_fetchone(query)
+    return res
 
 
 def is_there_this_id_in_table_unidentified_persons(unidentified_person_id):
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT EXISTS (SELECT 1 FROM UNIDENTIFIED_PERSONS WHERE UnidentifiedPersonId = " + str(
-                unidentified_person_id) + ");")
-            print("SELECT EXISTS (SELECT 1 FROM UNIDENTIFIED_PERSONS WHERE UnidentifiedPersonId =")
-            return cursor.fetchone()[0]
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "SELECT EXISTS (SELECT 1 FROM UNIDENTIFIED_PERSONS WHERE UnidentifiedPersonId = " + str(unidentified_person_id) + ");"
+    res = sql_query_with_return_fetchone(query)
+    return res
 
 
 def delete_from_table_unidentified_persons_by_id(unidentified_person_id):
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "DELETE FROM UNIDENTIFIED_PERSONS WHERE UnidentifiedPersonId = " + str(unidentified_person_id) + ";")
-            print("DELETE FROM UNIDENTIFIED_PERSONS WHERE UnidentifiedPersonId =")
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "DELETE FROM UNIDENTIFIED_PERSONS WHERE UnidentifiedPersonId = " + str(unidentified_person_id) + ";"
+    sql_query(query)
 
 
 def delete_from_table_dialogues_by_id(identified_person_id):
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "DELETE FROM DIALOGUES WHERE IdentifiedPersonId = " + str(identified_person_id) + ";")
-            print("DELETE FROM DIALOGUES WHERE IdentifiedPersonId = ")
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "DELETE FROM DIALOGUES WHERE IdentifiedPersonId = " + str(identified_person_id) + ";"
+    sql_query(query)
 
 
 def get_date_and_time_of_first_recognition_in_table_unidentified_persons(unidentified_person_id):
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT DateAndTimeOfFirstRecognition FROM UNIDENTIFIED_PERSONS WHERE UnidentifiedPersonId = " + str(
-                    unidentified_person_id) + ";")
-            print("SELECT DateAndTimeOfFirstRecognition FROM UNIDENTIFIED_PERSONS WHERE UnidentifiedPersonId = ")
-            return cursor.fetchone()[0]
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "SELECT DateAndTimeOfFirstRecognition FROM UNIDENTIFIED_PERSONS WHERE UnidentifiedPersonId = " + str(unidentified_person_id) + ";"
+    res = sql_query_with_return_fetchone(query)
+    return res
 
 
 def get_date_and_time_of_last_recognition_in_table_unidentified_persons(unidentified_person_id):
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT DateAndTimeOfLastRecognition FROM UNIDENTIFIED_PERSONS WHERE UnidentifiedPersonId = " + str(
-                    unidentified_person_id) + ";")
-            print("SELECT DateAndTimeOfLastRecognition FROM UNIDENTIFIED_PERSONS WHERE UnidentifiedPersonId = ")
-            return cursor.fetchone()[0]
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "SELECT DateAndTimeOfLastRecognition FROM UNIDENTIFIED_PERSONS WHERE UnidentifiedPersonId = " + str(unidentified_person_id) + ";"
+    res = sql_query_with_return_fetchone(query)
+    return res
 
 
 def get_date_and_time_of_first_recognition_in_table_identified_persons(identified_person_id):
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT DateAndTimeOfFirstRecognition FROM IDENTIFIED_PERSONS WHERE IdentifiedPersonId = " + str(
-                    identified_person_id) + ";")
-            print("SELECT DateAndTimeOfFirstRecognition FROM IDENTIFIED_PERSONS WHERE IdentifiedPersonId = ")
-            return cursor.fetchone()[0]
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "SELECT DateAndTimeOfFirstRecognition FROM IDENTIFIED_PERSONS WHERE IdentifiedPersonId = " + str(identified_person_id) + ";"
+    res = sql_query_with_return_fetchone(query)
+    return res
 
 
 def get_date_and_time_of_last_recognition_in_table_identified_persons(identified_person_id):
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT DateAndTimeOfLastRecognition FROM IDENTIFIED_PERSONS WHERE IdentifiedPersonId = " + str(
-                    identified_person_id) + ";")
-            print("SELECT DateAndTimeOfLastRecognition FROM IDENTIFIED_PERSONS WHERE IdentifiedPersonId = ")
-            return cursor.fetchone()[0]
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "SELECT DateAndTimeOfLastRecognition FROM IDENTIFIED_PERSONS WHERE IdentifiedPersonId = " + str(identified_person_id) + ";"
+    res = sql_query_with_return_fetchone(query)
+    return res
 
 
 def update_unidentified_person_id_to_identified_person_id_in_table_images(unidentified_person_id, identified_person_id):
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute("UPDATE IMAGES SET IdentifiedPersonId = " + str(
-                identified_person_id) + ", UnidentifiedPersonId = NULL WHERE UnidentifiedPersonId = " + str(
-                unidentified_person_id) + ";")
-            print("UPDATE IMAGES SET IdentifiedPersonId = ")
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "UPDATE IMAGES SET IdentifiedPersonId = " + str(identified_person_id) + ", UnidentifiedPersonId = NULL WHERE UnidentifiedPersonId = " + str(unidentified_person_id) + ";"
+    sql_query(query)
 
 
 def update_name_in_identified_persons(old_name, new_name):
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute("UPDATE IDENTIFIED_PERSONS SET Name = '" + new_name + "' WHERE Name = '" + old_name + "';")
-            print("UPDATE IDENTIFIED_PERSONS SET Name =")
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "UPDATE IDENTIFIED_PERSONS SET Name = '" + new_name + "' WHERE Name = '" + old_name + "';"
+    sql_query(query)
 
 
 def update_date_and_time_of_last_recognition_in_table_identified_persons(identified_person_id):
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "UPDATE IDENTIFIED_PERSONS SET DateAndTimeOfLastRecognition = NOW() WHERE IdentifiedPersonId = " + str(
-                    identified_person_id) + ";")
-            print("UPDATE IDENTIFIED_PERSONS SET DateAndTimeOfLastRecognition = NOW() WHERE IdentifiedPersonId = ")
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "UPDATE IDENTIFIED_PERSONS SET DateAndTimeOfLastRecognition = NOW() WHERE IdentifiedPersonId = " + str(identified_person_id) + ";"
+    sql_query(query)
 
 
 def update_date_and_time_of_last_recognition_in_table_unidentified_persons(unidentified_person_id):
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "UPDATE UNIDENTIFIED_PERSONS SET DateAndTimeOfLastRecognition = NOW() WHERE UnidentifiedPersonId = " + str(
-                    unidentified_person_id) + ";")
-            print("UPDATE UNIDENTIFIED_PERSONS SET DateAndTimeOfLastRecognition = NOW() WHERE UnidentifiedPersonId =")
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "UPDATE UNIDENTIFIED_PERSONS SET DateAndTimeOfLastRecognition = NOW() WHERE UnidentifiedPersonId = " + str(unidentified_person_id) + ";"
+    sql_query(query)
 
 
 def get_ids_from_table_identified_persons():
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT IdentifiedPersonId FROM IDENTIFIED_PERSONS;")
-            print("SELECT IdentifiedPersonId FROM IDENTIFIED_PERSONS")
-            return cursor.fetchall()
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "SELECT IdentifiedPersonId FROM IDENTIFIED_PERSONS;"
+    res = sql_query_with_return_fetchall(query)
+    return res
 
 
 def get_ids_from_table_unidentified_persons():
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT UnidentifiedPersonId FROM UNIDENTIFIED_PERSONS;")
-            print("SELECT UnidentifiedPersonId FROM UNIDENTIFIED_PERSONS")
-            return cursor.fetchall()
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "SELECT UnidentifiedPersonId FROM UNIDENTIFIED_PERSONS;"
+    res = sql_query_with_return_fetchall(query)
+    return res
 
 
 def get_questions_and_answers_by_identified_person_id_in_table_dialogues(identified_person_id):
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            user=user,
-            password=password,
-            database=db_name
-        )
-        connection.autocommit = True
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT dialogues.question, dialogues.answer FROM DIALOGUES WHERE IdentifiedPersonId = " + str(identified_person_id) + ";")
-            print("SELECT dialogues.question, dialogues.answer FROM DIALOGUES WHERE IdentifiedPersonId = ")
-            return cursor.fetchall()
-    except Exception as _ex:
-        print(_ex)
-    finally:
-        if connection:
-            connection.close()
+    query = "SELECT dialogues.question, dialogues.answer FROM DIALOGUES WHERE IdentifiedPersonId = " + str(identified_person_id) + ";"
+    res = sql_query_with_return_fetchall(query)
+    return res
 
 
 #--------------------------Speech recognition------------------------------------
@@ -1132,6 +624,7 @@ def close_program():
 if not os.path.isdir("dataset"):
     os.makedirs("dataset")
 
+
 create_table_identified_persons()
 create_table_unidentified_persons()
 create_table_images()
@@ -1153,17 +646,6 @@ sr.pause_threshold = 0.5
 
 
 #------------------------------Chatbot----------------------------------------------
-
-
-import torch
-import torch.nn as nn
-from torch import optim
-import torch.nn.functional as F
-import random
-import re
-import os
-from io import open
-import itertools
 
 
 USE_CUDA = torch.cuda.is_available()
@@ -1615,11 +1097,6 @@ searcher = Decoder(encoder, decoder)
 
 
 #---------------------------Interface---------------------------------------------
-
-import cv2
-import tkinter as tk
-from tkinter import scrolledtext
-from PIL import Image, ImageTk
 
 
 root = tk.Tk()
